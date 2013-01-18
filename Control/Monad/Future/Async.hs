@@ -16,7 +16,7 @@ import Control.Monad.Future.Class
 
 import Data.Future.Event
 import Data.Future.Result
-
+import Data.Monoid
 
 -- | We maintain the following invariant:
 --     `waitFor (asyncEvent x)' is before any use of result of `(asyncAction x)'
@@ -114,18 +114,21 @@ future_ = AsyncT . fmap (flip (,) ()) -- XTupleSections?
 -- AsyncT e (fmap f. (fmap g a)) = AsyncT e (fmap (f . g) a)
 -- AsyncT e (fmap (f . g) a)) = AsyncT e (fmap (f . g) a)
 --
-instance (Functor f) => Functor (AsyncT e f) where
+instance Functor f => Functor (AsyncT e f) where
   fmap f = AsyncT . fmap (second f) . runAsyncT
   {-# INLINE fmap #-}
 
-instance (Applicative m, MonadIO m, Event e) => Applicative (AsyncT e m) where
-  pure = AsyncT . fmap ((,) noWait) . return
+instance (Applicative f, Event e, Monoid e) => Applicative (AsyncT e f) where
+  pure = AsyncT . fmap ((,) noWait) . pure
   {-# INLINE pure #-}
 
-  -- TODO: more effective
-  (<*>) = ap
+  m <*> m' = AsyncT (g <$> runAsyncT m <*> runAsyncT m')
+    where
+      g (e, f) (e', x) = ((e <> e'), f x)
+      {-# INLINE g #-}
+  {-# INLINE (<*>) #-}
 
----------------------- A Consistency.
+---------------------- A Consistency -------------------------------------------
 -- === What is consistency?
 -- Here are that AsyncT consider as /consistency/:
 --   Expression of type `Async e a' is consistent iff:
@@ -166,12 +169,14 @@ instance (MonadIO m, Event e) => Monad (AsyncT e m) where
   return = AsyncT . return . (,) noWait
   {-# INLINE return #-}
 
-  m >>= f = future $ do
+  m >>= f = AsyncT $ do
     (e, x) <- runAsyncT m
     waitForM e
     runAsyncT (f x)
 
-  fail msg = AsyncT (fail msg)
+  fail = AsyncT . fail
+  -- or maybe: fail = AsyncT . fmap ((,) noWait) . fail
+  -- will it violate consistency?
 
 -- Maybe MonadIO -> Monad? But it requres to remove Monad constraint
 -- in MonadFuture
