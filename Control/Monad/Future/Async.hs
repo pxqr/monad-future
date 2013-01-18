@@ -8,6 +8,7 @@ module Control.Monad.Future.Async
        ) where
 
 import Control.Applicative
+import Control.Arrow
 import Control.Monad
 import Control.Monad.Trans
 
@@ -42,30 +43,31 @@ import Data.Future.Result
 --
 --     execKernel mem
 --
---   but in this case we can't synchonize no more. Last exsample may useful for
---   something like "write in another thread in socket forever"
+--   will be executed sync.
 --
 --   As rule of thumb: if you see MonadIO in signature then there are _maybe_
 --   will be synchonization, if not then there are surely no.
 --
-data AsyncT e m a = AsyncT {
-    asyncEvent  :: e
-  , asyncAction :: m a
-  }
+-- Exsamples of async:
+--
+--   aRes <- async m
+--   bRes <- async m'
+--   ...
+--   a <- await aRes
+--   b <- await bRes
+--
+data AsyncT e m a = AsyncT { runAsyncT :: m (e, a) }
 
+-- | 'AsyncT' version with 'IO' on top.
 type Async e a = AsyncT e IO a
 
 
-runAsyncT :: Monad m => AsyncT e m a -> m (e, a)
-runAsyncT (AsyncT e m) = m >>= \a -> return (e, a)
-{-# INLINE runAsyncT #-}
-
-evalAsyncT :: Monad m => AsyncT e m a -> m a
-evalAsyncT = asyncAction
+evalAsyncT :: Functor f => AsyncT e f a -> f a
+evalAsyncT = fmap snd . runAsyncT
 {-# INLINE evalAsyncT #-}
 
-execAsyncT :: Monad m => AsyncT e m a -> m e
-execAsyncT (AsyncT e m) = m >>= \_ -> return e
+execAsyncT :: Functor f => AsyncT e f a -> f e
+execAsyncT = fmap fst . runAsyncT
 {-# INLINE execAsyncT #-}
 
 runAsync :: Async e a -> IO (e, a)
@@ -80,6 +82,19 @@ execAsync :: Async e a -> IO e
 execAsync = execAsyncT
 {-# INLINE execAsync #-}
 
+-- | Resource will be accessible only in future.
+--   In contrast with lift -- resource should be synchonized.
+--   Normally this function should be used in only libs and
+--   but not in lib user code because 'future' is the only
+--   place there consistency can be violated.
+--
+future :: Event e => m (e, a) -> AsyncT e m a
+future = AsyncT
+{-# INLINE future #-}
+
+future_ :: (Functor m, Event e) => m e -> AsyncT e m ()
+future_ = AsyncT . fmap (flip (,) ()) -- XTupleSections?
+{-# INLINE future_ #-}
 
 -- We surely don't need synchonization here. Exsample:
 --   fmap (\io -> io >>= \x ->
@@ -88,61 +103,88 @@ execAsync = execAsyncT
 --
 -- prove: fmap id = id -- heh, need we?
 --
--- fmap id a = Async noWait (waitFor (asyncEvent a) >> fmap id (asyncAction a))
--- id a = Async noWait (waitFor (asyncEvent a) >> id (asyncAction a))
--- id a = Async noWait (waitFor (asyncEvent a) >> asyncAction a)
--- since we can not use result of (asyncAction a) this is true.
+-- fmap id (Async e a) = Async (e (fmap id a))
+-- (Async e a) = Async (e (fmap id a))
+-- (Async e a) = Async (e a)
 --
--- TODO: prove: fmap f . fmap g = fmap (f . g)
+-- prove: fmap f . fmap g = fmap (f . g)
 --
-instance (Functor m, MonadIO m, Event e) => Functor (AsyncT e m) where
-  fmap f (AsyncT e a) = AsyncT e $ fmap f a
+-- fmap f (fmap g (AsyncT e a)) = fmap (f . g) (AsyncT e a))
+-- fmap f (AsyncT e (fmap g a)) = AsyncT e (fmap (f . g) a)
+-- AsyncT e (fmap f. (fmap g a)) = AsyncT e (fmap (f . g) a)
+-- AsyncT e (fmap (f . g) a)) = AsyncT e (fmap (f . g) a)
+--
+instance (Functor f) => Functor (AsyncT e f) where
+  fmap f = AsyncT . fmap (second f) . runAsyncT
   {-# INLINE fmap #-}
 
 instance (Applicative m, MonadIO m, Event e) => Applicative (AsyncT e m) where
-  pure = AsyncT noWait . pure
+  pure = AsyncT . fmap ((,) noWait) . return
   {-# INLINE pure #-}
 
   -- TODO: more effective
   (<*>) = ap
 
-
+---------------------- A Consistency.
+-- === What is consistency?
+-- Here are that AsyncT consider as /consistency/:
+--   Expression of type `Async e a' is consistent iff:
+--     * either `a' in sync
+--     * or async and associated with /consistent/ event.
+--   Event is consistent iff `waitFor event >>' _makes_ future use of
+--   associated value consistent.
+--
+-- === How relates action with consistency?
+-- return           | lift in async context _pure_ computation which is
+--                  | consistent _yet_.
+--
+-- m >>= \x -> f x  | make sure that `x' is consistent and chain the action
+--                    with it. Here we basically have two cases:
+--    * `x' in m already in sync => `x' is consistent;
+--    * `x' in m not yet in sync so we should wait for => `x' is consistent.
+--
+-- === How consistency is : consistency propagation.
+-- Here we'll try to prove that >>=/return always gives consistent AsyncT.
+--   base case: return --- consistent from definition of return. (already in sync)
+--   induction: if `m' is consistent and `f' gives a consistent action then
+--               (m >>= f) is consistent from definition of (>>=).
+--              `f' gives a consistent action if it takes a consistent value.
+--              (why? try to prove, but assume it's true for the first time) <TODO:>
+--              `f' takes a consistent value because of definition of (>>=).
+--
+-- === Future note: 'future' as base case.
+-- Actually 'future' is the only place which can violate consistency and it
+-- happens iff event associated with value is not consistent.
+--                                 (see definition of consistent event)
+--
+-- === Monad laws
+-- m >>= return = m      | return always gives consistent action + def of (>>=)
+-- return a >>= f = f a  | iff `f' gives a consistent value. (see Future Note)
+-- (m >>= f) >>= g = m >>= (\x -> f x >>= g)
+--
 instance (MonadIO m, Event e) => Monad (AsyncT e m) where
-  return  = AsyncT noWait . return
+  return = AsyncT . return . (,) noWait
   {-# INLINE return #-}
 
   m >>= f = future $ do
-    x <- asyncAction m
-    waitForM (asyncEvent m)
+    (e, x) <- runAsyncT m
+    waitForM e
     runAsyncT (f x)
 
-  AsyncT e m >> AsyncT e' m' = AsyncT e' (waitForM e >> m >> m')
-  {-# INLINE (>>) #-}
+  fail msg = AsyncT (fail msg)
 
+-- Maybe MonadIO -> Monad? But it requres to remove Monad constraint
+-- in MonadFuture
 instance (MonadIO m, Event e) => MonadFuture (AsyncR e) (AsyncT e m) where
-  async (AsyncT e a) = AsyncT noWait (a >>= return . AsyncR e)
-  await (AsyncR e a) = AsyncT e (return a)
+  async m = AsyncT $ do
+    (e, a) <- runAsyncT m
+    return (noWait, AsyncR e a)
+  {-# INLINE async #-}
+
+  await (AsyncR e a) = AsyncT (return (e, a))
+  {-# INLINE await #-}
+
 
 instance Event e => MonadTrans (AsyncT e) where
-  lift = AsyncT noWait
+  lift m = AsyncT (m >>= return . ((,) noWait))
   {-# INLINE lift #-}
-
-
--- | Resource will be accessible only in future.
---   In contrast with lift -- resource should be synchonized.
---   Normally this function should be used in only libs and
---   but not in lib user code.
---
-future :: (MonadIO m, Event e) => m (e, a) -> AsyncT e m a
-future m = AsyncT noWait m >>= \(e, a) -> AsyncT e (return a)
-{-# INLINE future #-}
-
-future_ :: (MonadIO m, Event e) => m e -> AsyncT e m ()
-future_ m = AsyncT noWait m >>= \e -> AsyncT e (return ())
-{-# INLINE future_ #-}
-
-
---Async :: Event e => Async e a -> IO a
---runAsync (Async e a) = waitFor e >> a
-
---execAsync :: Event e => Async e a -> IO
