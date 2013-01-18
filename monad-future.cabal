@@ -1,0 +1,32 @@
+name:                  monad-future
+version:               0.1.0.0
+synopsis:              mtl-like monad transformer for asynchonous computations.
+description:           This package introduces polymorphic MonadFuture which can
+                       be both async and sync. In former case consistency of
+                       result data of async computation will be properly handled
+                       by AsyncT monad transformer.
+
+license:               MIT
+license-file:          LICENSE
+author:                Sam T.
+maintainer:            Sam T. <sta.cs.vsu@gmail.com>
+copyright:             (c) 2013, Sam T.
+category:              Control, Concurrent, Data
+build-type:            Simple
+cabal-version:         >= 1.8
+
+source-repository head
+  type:                git
+  location:            https://github.com/fmap/monad-future.git
+
+library
+  exposed-modules:     Control.Monad.Future
+                     , Data.Future.Result
+                     , Data.Future.Event
+
+  other-modules:       Control.Monad.Future.Class
+                     , Control.Monad.Future.Async
+                     , Control.Monad.Future.Sync
+
+  build-depends:       base == 4.5.*
+                     , mtl  == 2.1.*
