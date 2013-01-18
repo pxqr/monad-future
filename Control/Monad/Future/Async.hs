@@ -2,6 +2,9 @@
 module Control.Monad.Future.Async
        ( AsyncT, Async
        , future, future_
+       ,  runAsyncT,  runAsync
+       , execAsyncT, execAsync
+       , evalAsyncT, evalAsync
        ) where
 
 import Control.Applicative
@@ -65,6 +68,18 @@ evalAsyncT = asyncAction
 execAsyncT :: Monad m => AsyncT e m a -> m e
 execAsyncT (AsyncT e m) = m >>= \_ -> return e
 {-# INLINE execAsyncT #-}
+
+runAsync :: Async e a -> IO (e, a)
+runAsync = runAsyncT
+{-# INLINE runAsync #-}
+
+evalAsync :: Async e a -> IO a
+evalAsync = evalAsyncT
+{-# INLINE evalAsync #-}
+
+execAsync :: Async e a -> IO e
+execAsync = execAsyncT
+{-# INLINE execAsync #-}
 
 
 -- We surely need synchonization here. Exsample:
