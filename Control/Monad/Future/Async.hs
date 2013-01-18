@@ -81,9 +81,10 @@ execAsync = execAsyncT
 {-# INLINE execAsync #-}
 
 
--- We surely need synchonization here. Exsample:
+-- We surely don't need synchonization here. Exsample:
 --   fmap (\io -> io >>= \x ->
 --           peekPtr blah blah x)
+-- will run only after action event is performed.
 --
 -- prove: fmap id = id -- heh, need we?
 --
@@ -95,9 +96,8 @@ execAsync = execAsyncT
 -- TODO: prove: fmap f . fmap g = fmap (f . g)
 --
 instance (Functor m, MonadIO m, Event e) => Functor (AsyncT e m) where
-  fmap f a = AsyncT noWait $ do
-    waitForM (asyncEvent a)
-    fmap f (asyncAction a)
+  fmap f (AsyncT e a) = AsyncT e $ fmap f a
+  {-# INLINE fmap #-}
 
 instance (Applicative m, MonadIO m, Event e) => Applicative (AsyncT e m) where
   pure = AsyncT noWait . pure
