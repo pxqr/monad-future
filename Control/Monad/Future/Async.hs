@@ -9,8 +9,8 @@ module Control.Monad.Future.Async
 
 import Control.Applicative
 import Control.Arrow
+import Control.Monad
 import Control.Monad.Trans
-
 import Control.Monad.Future.Class
 
 import Data.Future.Event
@@ -159,13 +159,19 @@ instance (Applicative f, Event e, Monoid e) => Applicative (AsyncT e f) where
 -- happens iff event associated with value is not consistent.
 --                                 (see definition of consistent event)
 --
--- === Monad laws
+-- === Monad laws <TODO>
 -- m >>= return = m      | return always gives consistent action + def of (>>=)
 -- return a >>= f = f a  | iff `f' gives a consistent value. (see Future Note)
 -- (m >>= f) >>= g = m >>= (\x -> f x >>= g)
---
+--------------------------------------------------------------------------------
+
+-- Return without newtype wrapper.
+pureRes :: (Monad m, Event e) => a -> m (e, a)
+pureRes = return . (,) noWait
+{-# INLINE pureRes #-}
+
 instance (MonadIO m, Event e) => Monad (AsyncT e m) where
-  return = AsyncT . return . (,) noWait
+  return = AsyncT . pureRes
   {-# INLINE return #-}
 
   m >>= f = AsyncT $ do
@@ -176,6 +182,15 @@ instance (MonadIO m, Event e) => Monad (AsyncT e m) where
   fail = AsyncT . fail
   -- or maybe: fail = AsyncT . fmap ((,) noWait) . fail
   -- will it violate consistency?
+
+
+instance (MonadPlus m, MonadIO m, Event e) => MonadPlus (AsyncT e m) where
+  mzero = AsyncT mzero
+  {-# INLINE mzero #-}
+
+  mplus m m' = AsyncT (runAsyncT m `mplus` runAsyncT m')
+  {-# INLINE mplus #-}
+
 
 -- Maybe MonadIO -> Monad? But it requres to remove Monad constraint
 -- in MonadFuture
@@ -188,7 +203,10 @@ instance (MonadIO m, Event e) => MonadFuture (AsyncR e) (AsyncT e m) where
   await (AsyncR e a) = AsyncT (return (e, a))
   {-# INLINE await #-}
 
+instance (MonadIO m, Event e) => MonadIO (AsyncT e m) where
+  liftIO m = AsyncT (liftIO m >>= pureRes)
+  {-# INLINE liftIO #-}
 
 instance Event e => MonadTrans (AsyncT e) where
-  lift m = AsyncT (m >>= return . ((,) noWait))
+  lift m = AsyncT (m >>= pureRes)
   {-# INLINE lift #-}
