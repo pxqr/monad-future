@@ -1,7 +1,9 @@
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, UndecidableInstances #-}
+{-# LANGUAGE ExistentialQuantification #-}
 module Data.Future.Event
        ( Future(..)
        , Event (..)
+       , PastEvent(..)
+       , DynEvent(..)
        , waitForM
        ) where
 
@@ -68,3 +70,23 @@ instance Future e => Future [e] where
 instance Future e => Event [e] where
   noWait = []
   {-# INLINE noWait #-}
+
+
+-- | Events which always happened.
+data PastEvent = PastEvent deriving (Show, Read, Eq, Ord)
+
+instance Future PastEvent where
+  waitFor _ = return ()
+
+instance Event PastEvent where
+  noWait = PastEvent
+
+
+-- | Dynamic events.
+data DynEvent = forall e. Future e => MkEvent e
+
+instance Future DynEvent where
+  waitFor (MkEvent e) = waitFor e
+
+instance Event DynEvent where
+  noWait = MkEvent PastEvent
