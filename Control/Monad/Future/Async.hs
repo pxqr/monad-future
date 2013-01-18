@@ -9,7 +9,6 @@ module Control.Monad.Future.Async
 
 import Control.Applicative
 import Control.Arrow
-import Control.Monad
 import Control.Monad.Trans
 
 import Control.Monad.Future.Class
@@ -88,7 +87,7 @@ execAsync = execAsyncT
 --   but not in lib user code because 'future' is the only
 --   place there consistency can be violated.
 --
-future :: Event e => m (e, a) -> AsyncT e m a
+future :: m (e, a) -> AsyncT e m a
 future = AsyncT
 {-# INLINE future #-}
 
