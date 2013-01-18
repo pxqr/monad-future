@@ -116,7 +116,7 @@ instance (MonadIO m, Event e) => Monad (AsyncT e m) where
     waitForM (asyncEvent m)
     runAsyncT (f x)
 
-  AsyncT _ m >> AsyncT e' m' = AsyncT e' (m >> m')
+  AsyncT e m >> AsyncT e' m' = AsyncT e' (waitForM e >> m >> m')
   {-# INLINE (>>) #-}
 
 instance (MonadIO m, Event e) => MonadFuture (AsyncR e) (AsyncT e m) where
