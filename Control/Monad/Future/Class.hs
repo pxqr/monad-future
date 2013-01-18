@@ -20,5 +20,5 @@ class Monad m => MonadFuture r m | m -> r where
   #-}
 
 -- TODO: Instances
-instance (Monoid w, MonadFuture e m) => MonadFuture e (WriterT w m) where
-  await = lift . await
+--instance (Monoid w, MonadFuture e m) => MonadFuture e (WriterT w m) where
+--  await = lift . await

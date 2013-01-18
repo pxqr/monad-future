@@ -9,7 +9,6 @@ module Control.Monad.Future.Async
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Reader (MonadIO)
 import Control.Monad.Trans
 
 import Control.Monad.Future.Class
