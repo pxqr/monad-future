@@ -23,6 +23,7 @@ library
   exposed-modules:     Control.Monad.Future
                      , Data.Future.Result
                      , Data.Future.Event
+                     , Data.Future.Event.PEvent
 
   other-modules:       Control.Monad.Future.Class
                      , Control.Monad.Future.Async
